@@ -59,6 +59,10 @@ fn run(
     let config = connection::build_config(&server, width, height);
     let (connection_result, mut framed) = connection::connect(config, server.host.clone(), server.port)?;
 
+    // Now that the handshake is done, switch to a short read timeout so the
+    // active-stage loop stays responsive to input and shutdown requests.
+    connection::set_read_timeout(&mut framed, Some(std::time::Duration::from_millis(16)))?;
+
     let desktop = connection_result.desktop_size;
     let mut image = DecodedImage::new(
         ironrdp_graphics::image_processing::PixelFormat::RgbA32,

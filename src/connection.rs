@@ -72,12 +72,6 @@ pub fn connect(
 
     let tcp_stream = TcpStream::connect(server_addr).context("TCP connect")?;
 
-    // Short read timeout so the active-stage loop stays responsive to input and
-    // shutdown requests via WouldBlock.
-    tcp_stream
-        .set_read_timeout(Some(std::time::Duration::from_millis(16)))
-        .context("set_read_timeout")?;
-
     let client_addr = tcp_stream.local_addr().context("get socket local address")?;
 
     let mut framed = ironrdp_blocking::Framed::new(tcp_stream);
@@ -110,6 +104,21 @@ pub fn connect(
     .context("finalize connection")?;
 
     Ok((connection_result, upgraded_framed))
+}
+
+/// Set a read timeout on the underlying TCP stream of an established connection.
+///
+/// Used after connecting so the active-stage loop can poll with a short timeout
+/// (returning `WouldBlock`/`TimedOut`) while remaining responsive to UI input
+/// and shutdown requests. The timeout MUST NOT be set during the connection
+/// handshake, where blocking reads are required.
+pub fn set_read_timeout(
+    framed: &mut UpgradedFramed,
+    timeout: Option<std::time::Duration>,
+) -> anyhow::Result<()> {
+    let (stream, _leftover) = framed.get_inner_mut();
+    stream.sock.set_read_timeout(timeout).context("set_read_timeout")?;
+    Ok(())
 }
 
 fn lookup_addr(hostname: &str, port: u16) -> anyhow::Result<core::net::SocketAddr> {
