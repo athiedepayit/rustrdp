@@ -19,7 +19,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "MacRDP",
+        "RustRDP",
         options,
         Box::new(|_cc| Ok(Box::new(App::new()))),
     )

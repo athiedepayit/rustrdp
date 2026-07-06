@@ -43,7 +43,7 @@ pub fn config_path() -> anyhow::Result<PathBuf> {
     // The user explicitly requested ~/.config regardless of platform.
     // (On macOS, dirs::config_dir() would return ~/Library/Application Support.)
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("could not determine home directory"))?;
-    let dir = home.join(".config").join("macrdp");
+    let dir = home.join(".config").join("rustrdp");
     Ok(dir.join("servers.json"))
 }
 
@@ -97,7 +97,7 @@ mod tests {
     fn config_path_uses_dot_config() {
         let p = config_path().unwrap();
         let s = p.to_string_lossy();
-        assert!(s.contains("/.config/macrdp/servers.json"), "path was {s}");
+        assert!(s.contains("/.config/rustrdp/servers.json"), "path was {s}");
     }
 
     #[test]

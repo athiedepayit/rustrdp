@@ -2870,31 +2870,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
-name = "macrdp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs",
- "eframe",
- "egui",
- "ironrdp",
- "ironrdp-blocking",
- "ironrdp-connector",
- "ironrdp-core",
- "ironrdp-displaycontrol",
- "ironrdp-dvc",
- "ironrdp-graphics",
- "ironrdp-input",
- "ironrdp-pdu",
- "ironrdp-session",
- "serde",
- "serde_json",
- "sspi",
- "tokio-rustls",
- "x509-cert",
-]
-
-[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4458,6 +4433,31 @@ dependencies = [
  "ring",
  "rustls-pki-types",
  "untrusted",
+]
+
+[[package]]
+name = "rustrdp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "eframe",
+ "egui",
+ "ironrdp",
+ "ironrdp-blocking",
+ "ironrdp-connector",
+ "ironrdp-core",
+ "ironrdp-displaycontrol",
+ "ironrdp-dvc",
+ "ironrdp-graphics",
+ "ironrdp-input",
+ "ironrdp-pdu",
+ "ironrdp-session",
+ "serde",
+ "serde_json",
+ "sspi",
+ "tokio-rustls",
+ "x509-cert",
 ]
 
 [[package]]

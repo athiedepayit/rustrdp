@@ -43,7 +43,7 @@ pub fn build_config(server: &Server, width: u16, height: u16) -> connector::Conf
         desktop_size: connector::DesktopSize { width, height },
         bitmap: None,
         client_build: 0,
-        client_name: "macrdp".to_owned(),
+        client_name: "rustrdp".to_owned(),
         client_dir: "C:\\Windows\\System32\\mstscax.dll".to_owned(),
         platform: MajorPlatformType::MACINTOSH,
         enable_server_pointer: true,

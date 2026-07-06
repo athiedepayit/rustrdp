@@ -1,9 +1,9 @@
-# MacRDP — Minimal Rust RDP Client
+# RustRDP — Minimal Rust RDP Client
 
 A single self-contained Rust binary (no external tool invocation) presenting one
 window: a server list on the left, a tabbed connection area on the right (like
 the classic Microsoft Remote Desktop Connection Manager). Servers and their
-connection details are persisted to `~/.config/macrdp/servers.json`. No features
+connection details are persisted to `~/.config/rustrdp/servers.json`. No features
 beyond what was explicitly requested.
 
 ## Confirmed decisions
@@ -39,7 +39,7 @@ The UI thread never blocks on the network.
 Cargo.toml
 src/
   main.rs        # eframe entry, App struct, egui layout (left list + right tabs)
-  config.rs      # Server struct, load/save ~/.config/macrdp/servers.json
+  config.rs      # Server struct, load/save ~/.config/rustrdp/servers.json
   session.rs     # RDP worker thread: connect + active-stage loop, channels
   connection.rs  # IronRDP connect() + TLS upgrade (from screenshot example)
   input.rs       # egui event -> ironrdp-input Operation mapping
