@@ -195,6 +195,19 @@ fn reactivate(
     framed: &mut connection::UpgradedFramed,
     cas: &mut ironrdp_connector::connection_activation::ConnectionActivationSequence,
 ) -> anyhow::Result<Option<(u32, u16, u16)>> {
+    // The reactivation handshake needs blocking reads (like the initial
+    // connection). Clear the short active-stage read timeout for the duration,
+    // then restore it before returning to the active-stage loop.
+    connection::set_read_timeout(framed, None)?;
+    let result = drive_reactivation(framed, cas);
+    connection::set_read_timeout(framed, Some(std::time::Duration::from_millis(16)))?;
+    result
+}
+
+fn drive_reactivation(
+    framed: &mut connection::UpgradedFramed,
+    cas: &mut ironrdp_connector::connection_activation::ConnectionActivationSequence,
+) -> anyhow::Result<Option<(u32, u16, u16)>> {
     use ironrdp_connector::Sequence as _;
 
     let mut buf = WriteBuf::new();

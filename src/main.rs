@@ -25,6 +25,43 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+/// Desktop resolution selection for a connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolution {
+    /// Adapt the remote desktop to the size of the drawing area.
+    FitToWindow,
+    /// A fixed resolution.
+    Fixed(u16, u16),
+}
+
+impl Resolution {
+    /// Preset options shown in the dropdown.
+    const PRESETS: &'static [Resolution] = &[
+        Resolution::FitToWindow,
+        Resolution::Fixed(1920, 1080),
+        Resolution::Fixed(1600, 900),
+        Resolution::Fixed(1440, 900),
+        Resolution::Fixed(1366, 768),
+        Resolution::Fixed(1280, 800),
+        Resolution::Fixed(1024, 768),
+    ];
+
+    fn label(self) -> String {
+        match self {
+            Resolution::FitToWindow => "Fit to window".to_owned(),
+            Resolution::Fixed(w, h) => format!("{w} x {h}"),
+        }
+    }
+}
+
+/// Clamp a desired desktop size to the RDP-valid range (200..=8192) and make
+/// the width even, as required by the Display Control protocol.
+fn clamp_desktop((w, h): (u16, u16)) -> (u16, u16) {
+    let w = w.clamp(200, 8192) & !1;
+    let h = h.clamp(200, 8192);
+    (w, h)
+}
+
 /// State of a single open connection tab.
 struct ConnTab {
     server_name: String,
@@ -33,6 +70,8 @@ struct ConnTab {
     desktop_size: (u16, u16),
     /// Last desktop resolution we asked the server to switch to.
     requested_size: (u16, u16),
+    /// Chosen resolution mode.
+    resolution: Resolution,
     status: String,
     connected: bool,
     // Keyboard scancodes currently held down, so we can release them.
@@ -52,6 +91,9 @@ struct App {
     tabs: Vec<ConnTab>,
     active_tab: Option<usize>,
     editor: Option<Editor>,
+    /// Last known size of the connection drawing area, used to pick the
+    /// initial resolution when connecting in "Fit to window" mode.
+    last_central_size: (u16, u16),
 }
 
 impl App {
@@ -62,13 +104,15 @@ impl App {
             tabs: Vec::new(),
             active_tab: None,
             editor: None,
+            last_central_size: (1280, 800),
         }
     }
 
     fn connect(&mut self, index: usize) {
         let server = self.config.servers[index].clone();
-        // Request a standard desktop size; server may negotiate its own.
-        let (w, h) = (1280u16, 800u16);
+        // Adapt the initial desktop size to the current drawing area so the
+        // first frame already matches the window ("Fit to window" default).
+        let (w, h) = clamp_desktop(self.last_central_size);
         let handle = session::spawn(server.clone(), w, h);
         self.tabs.push(ConnTab {
             server_name: server.name.clone(),
@@ -76,6 +120,7 @@ impl App {
             texture: None,
             desktop_size: (w, h),
             requested_size: (w, h),
+            resolution: Resolution::FitToWindow,
             status: "Connecting...".to_owned(),
             connected: false,
             held_keys: std::collections::HashSet::new(),
@@ -235,7 +280,36 @@ impl App {
             if let Some(i) = close_tab {
                 self.close_tab(i);
             }
+
+            // Resolution selector for the active tab.
+            if let Some(active) = self.active_tab {
+                if active < self.tabs.len() {
+                    let tab = &mut self.tabs[active];
+                    ui.horizontal(|ui| {
+                        ui.label("Resolution:");
+                        egui::ComboBox::from_id_salt("resolution")
+                            .selected_text(tab.resolution.label())
+                            .show_ui(ui, |ui| {
+                                for preset in Resolution::PRESETS {
+                                    ui.selectable_value(
+                                        &mut tab.resolution,
+                                        *preset,
+                                        preset.label(),
+                                    );
+                                }
+                            });
+                    });
+                }
+            }
+
             ui.separator();
+
+            // Remember the drawing area so a new connection can adapt to it.
+            let avail = ui.available_size();
+            self.last_central_size = (
+                (avail.x.max(1.0) as u16).max(1),
+                (avail.y.max(1.0) as u16).max(1),
+            );
 
             if let Some(active) = self.active_tab {
                 if active < self.tabs.len() {
@@ -252,11 +326,14 @@ impl App {
     fn render_tab(ui: &mut egui::Ui, tab: &mut ConnTab) {
         ui.label(&tab.status);
 
-        // Determine the drawing area for the remote desktop and request a
-        // matching resolution from the server (debounced in the worker).
+        // Determine the desired remote resolution and request it from the
+        // server (debounced in the worker). In "Fit to window" mode this
+        // tracks the drawing area; otherwise it is the chosen fixed size.
         let avail = ui.available_size();
-        let target_w = (avail.x.max(1.0) as u16).max(200);
-        let target_h = (avail.y.max(1.0) as u16).max(200);
+        let (target_w, target_h) = match tab.resolution {
+            Resolution::FitToWindow => clamp_desktop((avail.x as u16, avail.y as u16)),
+            Resolution::Fixed(w, h) => clamp_desktop((w, h)),
+        };
         // Small tolerance avoids oscillation from even-width rounding done by
         // the server during negotiation.
         let (rw, rh) = tab.requested_size;
