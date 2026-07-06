@@ -17,6 +17,8 @@ ironrdp-graphics = "0.8"
 ironrdp-input = "0.6"
 ironrdp-pdu = "0.8"
 ironrdp-core = "0.2"
+ironrdp-dvc = "0.7"
+ironrdp-displaycontrol = "0.7"
 
 # TLS + CredSSP network client
 sspi = { version = "0.21", features = ["network_client"] }

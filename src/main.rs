@@ -31,6 +31,8 @@ struct ConnTab {
     handle: SessionHandle,
     texture: Option<TextureHandle>,
     desktop_size: (u16, u16),
+    /// Last desktop resolution we asked the server to switch to.
+    requested_size: (u16, u16),
     status: String,
     connected: bool,
     // Keyboard scancodes currently held down, so we can release them.
@@ -73,6 +75,7 @@ impl App {
             handle,
             texture: None,
             desktop_size: (w, h),
+            requested_size: (w, h),
             status: "Connecting...".to_owned(),
             connected: false,
             held_keys: std::collections::HashSet::new(),
@@ -99,6 +102,10 @@ impl App {
                 match tab.handle.from_worker.try_recv() {
                     Ok(ToUi::Connected { width, height }) => {
                         tab.desktop_size = (width, height);
+                        // Treat the server-negotiated size as satisfying the
+                        // current request, so we only resize again when the UI
+                        // area actually changes.
+                        tab.requested_size = (width, height);
                         tab.connected = true;
                         tab.status = format!("Connected ({width}x{height})");
                     }
@@ -245,13 +252,29 @@ impl App {
     fn render_tab(ui: &mut egui::Ui, tab: &mut ConnTab) {
         ui.label(&tab.status);
 
+        // Determine the drawing area for the remote desktop and request a
+        // matching resolution from the server (debounced in the worker).
+        let avail = ui.available_size();
+        let target_w = (avail.x.max(1.0) as u16).max(200);
+        let target_h = (avail.y.max(1.0) as u16).max(200);
+        // Small tolerance avoids oscillation from even-width rounding done by
+        // the server during negotiation.
+        let (rw, rh) = tab.requested_size;
+        let changed = target_w.abs_diff(rw) > 2 || target_h.abs_diff(rh) > 2;
+        if tab.connected && changed {
+            tab.requested_size = (target_w, target_h);
+            let _ = tab.handle.to_worker.send(ToWorker::Resize {
+                width: target_w,
+                height: target_h,
+            });
+        }
+
         let Some(texture) = &tab.texture else {
             return;
         };
 
         let (dw, dh) = tab.desktop_size;
-        let avail = ui.available_size();
-        // Fit while preserving aspect ratio.
+        // Fit while preserving aspect ratio (no upscaling beyond the desktop).
         let scale = (avail.x / dw as f32).min(avail.y / dh as f32).min(1.0);
         let display_size = egui::vec2(dw as f32 * scale, dh as f32 * scale);
 

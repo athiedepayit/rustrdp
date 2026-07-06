@@ -2,6 +2,8 @@
 
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
+use ironrdp_connector::connection_activation::ConnectionActivationState;
+use ironrdp_core::WriteBuf;
 use ironrdp_input::Operation;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStage, ActiveStageOutput};
@@ -25,6 +27,8 @@ pub enum ToUi {
 /// Messages from the UI to the worker thread.
 pub enum ToWorker {
     Input(Vec<Operation>),
+    /// Request the remote desktop be resized to the given dimensions.
+    Resize { width: u16, height: u16 },
     Shutdown,
 }
 
@@ -81,6 +85,14 @@ fn run(
     // Send an initial (blank) frame so the UI has a texture.
     send_frame(to_ui, &image);
 
+    // Debounced pending resize request. We only forward one resize to the
+    // server after the UI stops changing size for a short interval, so we
+    // don't flood the server during a live window drag.
+    let mut pending_resize: Option<(u16, u16)> = None;
+    let mut last_sent_size: (u16, u16) = (desktop.width, desktop.height);
+    let mut resize_deadline: Option<std::time::Instant> = None;
+    const RESIZE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
+
     loop {
         // Drain any pending input from the UI and forward it to the server.
         loop {
@@ -96,9 +108,37 @@ fn run(
                         }
                     }
                 }
+                Ok(ToWorker::Resize { width, height }) => {
+                    // Coalesce; only act once the size settles (debounce).
+                    if (width, height) != last_sent_size {
+                        pending_resize = Some((width, height));
+                        resize_deadline = Some(std::time::Instant::now() + RESIZE_DEBOUNCE);
+                    }
+                }
                 Ok(ToWorker::Shutdown) => return Ok(()),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return Ok(()),
+            }
+        }
+
+        // If a debounced resize is due, send it to the server.
+        if let (Some((w, h)), Some(deadline)) = (pending_resize, resize_deadline) {
+            if std::time::Instant::now() >= deadline {
+                pending_resize = None;
+                resize_deadline = None;
+                // adjust_display_size enforces the protocol's valid range and
+                // even-width requirement.
+                let (aw, ah) = ironrdp_displaycontrol::pdu::MonitorLayoutEntry::adjust_display_size(
+                    u32::from(w),
+                    u32::from(h),
+                );
+                if let Some(res) = active_stage.encode_resize(aw, ah, None, None) {
+                    let frame = res?;
+                    framed.write_all(&frame)?;
+                    last_sent_size = (w, h);
+                }
+                // If encode_resize returned None the DVC isn't ready yet; the
+                // next UI resize event will retry.
             }
         }
 
@@ -117,6 +157,23 @@ fn run(
             match out {
                 ActiveStageOutput::ResponseFrame(frame) => framed.write_all(&frame)?,
                 ActiveStageOutput::GraphicsUpdate(_) => dirty = true,
+                ActiveStageOutput::DeactivateAll(mut cas) => {
+                    // The server accepted a resize (or otherwise wants to
+                    // reactivate). Drive the reactivation sequence to
+                    // completion, then rebuild our image at the new size.
+                    let new_size = reactivate(&mut framed, &mut cas)?;
+                    if let Some((share_id, w, h)) = new_size {
+                        active_stage.set_share_id(share_id);
+                        image = DecodedImage::new(
+                            ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+                            w,
+                            h,
+                        );
+                        last_sent_size = (w, h);
+                        let _ = to_ui.send(ToUi::Connected { width: w, height: h });
+                        send_frame(to_ui, &image);
+                    }
+                }
                 ActiveStageOutput::Terminate(reason) => {
                     let _ = to_ui.send(ToUi::Disconnected(reason.description()));
                     return Ok(());
@@ -128,6 +185,44 @@ fn run(
         if dirty {
             send_frame(to_ui, &image);
         }
+    }
+}
+
+/// Drive a deactivation-reactivation sequence to completion.
+///
+/// Returns the new `(share_id, width, height)` on success.
+fn reactivate(
+    framed: &mut connection::UpgradedFramed,
+    cas: &mut ironrdp_connector::connection_activation::ConnectionActivationSequence,
+) -> anyhow::Result<Option<(u32, u16, u16)>> {
+    use ironrdp_connector::Sequence as _;
+
+    let mut buf = WriteBuf::new();
+    loop {
+        buf.clear();
+        let written = if let Some(hint) = cas.next_pdu_hint() {
+            let pdu = framed.read_by_hint(hint)?;
+            cas.step(&pdu, &mut buf)?
+        } else {
+            cas.step_no_input(&mut buf)?
+        };
+        if let Some(n) = written.size() {
+            framed.write_all(&buf[..n])?;
+        }
+        if cas.state().is_terminal() {
+            break;
+        }
+    }
+
+    if let ConnectionActivationState::Finalized {
+        desktop_size,
+        share_id,
+        ..
+    } = cas.connection_activation_state()
+    {
+        Ok(Some((share_id, desktop_size.width, desktop_size.height)))
+    } else {
+        Ok(None)
     }
 }
 

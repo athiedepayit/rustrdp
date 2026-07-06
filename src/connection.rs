@@ -76,7 +76,11 @@ pub fn connect(
 
     let mut framed = ironrdp_blocking::Framed::new(tcp_stream);
 
-    let mut connector = ClientConnector::new(config, client_addr);
+    let mut connector = ClientConnector::new(config, client_addr).with_static_channel(
+        ironrdp_dvc::DrdynvcClient::new().with_dynamic_channel(
+            ironrdp_displaycontrol::client::DisplayControlClient::new(|_caps| Ok(Vec::new())),
+        ),
+    );
 
     let should_upgrade =
         ironrdp_blocking::connect_begin(&mut framed, &mut connector).context("begin connection")?;
