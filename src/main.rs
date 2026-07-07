@@ -66,6 +66,8 @@ fn clamp_desktop((w, h): (u16, u16)) -> (u16, u16) {
 /// State of a single open connection tab.
 struct ConnTab {
     server_name: String,
+    /// Index into `Config::servers` so we can reconnect without re-selecting.
+    server_index: usize,
     handle: SessionHandle,
     texture: Option<TextureHandle>,
     desktop_size: (u16, u16),
@@ -132,6 +134,7 @@ impl App {
         let handle = session::spawn(server.clone(), username, password, domain, clipboard_passthrough, w, h);
         self.tabs.push(ConnTab {
             server_name: server.name.clone(),
+            server_index: index,
             handle,
             texture: None,
             desktop_size: (w, h),
@@ -154,6 +157,33 @@ impl App {
                 self.active_tab = Some(active.min(self.tabs.len() - 1));
             }
         }
+    }
+
+    /// Disconnect the current session for tab `i` and immediately reconnect
+    /// using the same server configuration.  The tab stays in place.
+    fn reconnect_tab(&mut self, i: usize) {
+        if i >= self.tabs.len() {
+            return;
+        }
+        let server_index = self.tabs[i].server_index;
+        if server_index >= self.config.servers.len() {
+            return;
+        }
+        let server = self.config.servers[server_index].clone();
+        let (username, password, domain) = self.config.resolve_credentials(&server);
+        let (username, password, domain) = (username.to_owned(), password.to_owned(), domain.to_owned());
+        let clipboard_passthrough = self.config.clipboard_passthrough;
+        let (w, h) = clamp_desktop(self.tabs[i].desktop_size);
+        // Shut down the old worker (it may already be dead, ignore errors).
+        let _ = self.tabs[i].handle.to_worker.send(ToWorker::Shutdown);
+        // Spawn a fresh worker and replace the tab's handle in-place.
+        let handle = session::spawn(server.clone(), username, password, domain, clipboard_passthrough, w, h);
+        let tab = &mut self.tabs[i];
+        tab.handle = handle;
+        tab.texture = None;
+        tab.connected = false;
+        tab.status = "Connecting...".to_owned();
+        tab.held_keys.clear();
     }
 
     /// Drain worker messages for all tabs and update textures/status.
@@ -337,9 +367,35 @@ impl App {
                         }
                     }
                 });
+            // Resolution selector for the active tab.
+            if let Some(active) = self.active_tab {
+                if active < self.tabs.len() {
+                    let tab = &mut self.tabs[active];
+                    ui.horizontal(|ui| {
+                        ui.label("Resolution:");
+                        egui::ComboBox::from_id_salt("resolution")
+                            .selected_text(tab.resolution.label())
+                            .show_ui(ui, |ui| {
+                                for preset in Resolution::PRESETS {
+                                    ui.selectable_value(
+                                        &mut tab.resolution,
+                                        *preset,
+                                        preset.label(),
+                                    );
+                                }
+                            });
+                    });
+                }
+            }
+
                 if ui.button("Connect").clicked() {
                     if let Some(i) = self.selected {
                         self.connect(i);
+                    }
+                }
+                if let Some(active) = self.active_tab {
+                    if ui.button("Reconnect").clicked() {
+                        self.reconnect_tab(active);
                     }
                 }
             });
@@ -363,27 +419,6 @@ impl App {
             });
             if let Some(i) = close_tab {
                 self.close_tab(i);
-            }
-
-            // Resolution selector for the active tab.
-            if let Some(active) = self.active_tab {
-                if active < self.tabs.len() {
-                    let tab = &mut self.tabs[active];
-                    ui.horizontal(|ui| {
-                        ui.label("Resolution:");
-                        egui::ComboBox::from_id_salt("resolution")
-                            .selected_text(tab.resolution.label())
-                            .show_ui(ui, |ui| {
-                                for preset in Resolution::PRESETS {
-                                    ui.selectable_value(
-                                        &mut tab.resolution,
-                                        *preset,
-                                        preset.label(),
-                                    );
-                                }
-                            });
-                    });
-                }
             }
 
             ui.separator();
