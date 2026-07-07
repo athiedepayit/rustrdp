@@ -98,6 +98,37 @@ impl Config {
     }
 }
 
+/// Resolve the actual password from a raw password field value.
+///
+/// If `raw` starts with `"cmd:"`, the remainder is executed as a shell command
+/// via `sh -c` and its trimmed stdout is returned as the password.  This lets
+/// users retrieve credentials from a keychain, password manager CLI, or any
+/// other external source without storing the plaintext password in the config.
+///
+/// Returns `Ok(password)` on success, or `Err(message)` if the command fails
+/// (non-zero exit status or process spawn error).  For plain passwords (no
+/// `"cmd:"` prefix) this always returns `Ok(raw.to_owned())`.
+pub fn resolve_password(raw: &str) -> Result<String, String> {
+    if let Some(cmd) = raw.strip_prefix("cmd:") {
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            }
+            Ok(output) => Err(format!(
+                "Credential Command Failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+            Err(e) => Err(format!("Credential Command Failed: {e}")),
+        }
+    } else {
+        Ok(raw.to_owned())
+    }
+}
+
 pub fn config_path() -> anyhow::Result<PathBuf> {
     // The user explicitly requested ~/.config regardless of platform.
     // (On macOS, dirs::config_dir() would return ~/Library/Application Support.)
@@ -219,5 +250,32 @@ mod tests {
         let json = r#"{"servers":[{"name":"x","host":"h"}]}"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.servers[0].port, 3389);
+    }
+
+    #[test]
+    fn resolve_password_plain() {
+        assert_eq!(resolve_password("hunter2").unwrap(), "hunter2");
+    }
+
+    #[test]
+    fn resolve_password_cmd_success() {
+        let result = resolve_password("cmd:echo mysecret").unwrap();
+        assert_eq!(result, "mysecret");
+    }
+
+    #[test]
+    fn resolve_password_cmd_trims_newline() {
+        // printf to avoid a trailing newline — result should still be trimmed.
+        let result = resolve_password("cmd:printf '  spaced  '").unwrap();
+        assert_eq!(result, "spaced");
+    }
+
+    #[test]
+    fn resolve_password_cmd_failure() {
+        let err = resolve_password("cmd:sh -c 'exit 1'").unwrap_err();
+        assert!(
+            err.starts_with("Credential Command Failed"),
+            "unexpected error: {err}"
+        );
     }
 }

@@ -45,6 +45,18 @@ pub struct SessionHandle {
     pub from_worker: Receiver<ToUi>,
 }
 
+/// Create a `SessionHandle` that is already inert — no worker thread is
+/// spawned and both channels are immediately closed.  Used when credential
+/// resolution fails so that the error tab has a valid (but dead) handle.
+pub fn spawn_failed() -> SessionHandle {
+    let (to_worker_tx, _to_worker_rx) = std::sync::mpsc::channel::<ToWorker>();
+    let (_to_ui_tx, to_ui_rx) = std::sync::mpsc::channel::<ToUi>();
+    SessionHandle {
+        to_worker: to_worker_tx,
+        from_worker: to_ui_rx,
+    }
+}
+
 pub fn spawn(
     server: Server,
     username: String,

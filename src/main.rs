@@ -121,9 +121,28 @@ impl App {
 
     fn connect(&mut self, index: usize) {
         let server = self.config.servers[index].clone();
-        let (username, password, domain) = self.config.resolve_credentials(&server);
-        let (username, password, domain) =
-            (username.to_owned(), password.to_owned(), domain.to_owned());
+        let (username, raw_password, domain) = self.config.resolve_credentials(&server);
+        let password = match config::resolve_password(raw_password) {
+            Ok(pw) => pw,
+            Err(msg) => {
+                // Surface the error as a tab so the user sees it immediately.
+                self.tabs.push(ConnTab {
+                    server_name: server.name.clone(),
+                    server_index: index,
+                    handle: session::spawn_failed(),
+                    texture: None,
+                    desktop_size: self.last_central_size,
+                    requested_size: self.last_central_size,
+                    resolution: Resolution::FitToWindow,
+                    status: msg,
+                    connected: false,
+                    held_keys: std::collections::HashSet::new(),
+                });
+                self.active_tab = Some(self.tabs.len() - 1);
+                return;
+            }
+        };
+        let (username, domain) = (username.to_owned(), domain.to_owned());
         let clipboard_passthrough = self.config.clipboard_passthrough;
         // Adapt the initial desktop size to the current drawing area so the
         // first frame already matches the window ("Fit to window" default).
@@ -175,9 +194,16 @@ impl App {
             return;
         }
         let server = self.config.servers[server_index].clone();
-        let (username, password, domain) = self.config.resolve_credentials(&server);
-        let (username, password, domain) =
-            (username.to_owned(), password.to_owned(), domain.to_owned());
+        let (username, raw_password, domain) = self.config.resolve_credentials(&server);
+        let password = match config::resolve_password(raw_password) {
+            Ok(pw) => pw,
+            Err(msg) => {
+                let tab = &mut self.tabs[i];
+                tab.status = msg;
+                return;
+            }
+        };
+        let (username, domain) = (username.to_owned(), domain.to_owned());
         let clipboard_passthrough = self.config.clipboard_passthrough;
         let (w, h) = clamp_desktop(self.tabs[i].desktop_size);
         // Shut down the old worker (it may already be dead, ignore errors).
