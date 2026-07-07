@@ -37,12 +37,12 @@ pub struct SessionHandle {
     pub from_worker: Receiver<ToUi>,
 }
 
-pub fn spawn(server: Server, width: u16, height: u16) -> SessionHandle {
+pub fn spawn(server: Server, username: String, password: String, domain: String, width: u16, height: u16) -> SessionHandle {
     let (to_worker_tx, to_worker_rx) = std::sync::mpsc::channel::<ToWorker>();
     let (to_ui_tx, to_ui_rx) = std::sync::mpsc::channel::<ToUi>();
 
     std::thread::spawn(move || {
-        if let Err(e) = run(server, width, height, &to_ui_tx, &to_worker_rx) {
+        if let Err(e) = run(server, username, password, domain, width, height, &to_ui_tx, &to_worker_rx) {
             let _ = to_ui_tx.send(ToUi::Error(format!("{e:#}")));
         }
     });
@@ -55,12 +55,15 @@ pub fn spawn(server: Server, width: u16, height: u16) -> SessionHandle {
 
 fn run(
     server: Server,
+    username: String,
+    password: String,
+    domain: String,
     width: u16,
     height: u16,
     to_ui: &Sender<ToUi>,
     from_ui: &Receiver<ToWorker>,
 ) -> anyhow::Result<()> {
-    let config = connection::build_config(&server, width, height);
+    let config = connection::build_config(&server, &username, &password, &domain, width, height);
     let (connection_result, mut framed) = connection::connect(config, server.host.clone(), server.port)?;
 
     // Now that the handshake is done, switch to a short read timeout so the

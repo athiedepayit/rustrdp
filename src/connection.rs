@@ -19,17 +19,24 @@ use crate::config::Server;
 pub type UpgradedFramed =
     ironrdp_blocking::Framed<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>;
 
-pub fn build_config(server: &Server, width: u16, height: u16) -> connector::Config {
-    let domain = if server.domain.is_empty() {
+pub fn build_config(
+    _server: &Server,
+    username: &str,
+    password: &str,
+    domain: &str,
+    width: u16,
+    height: u16,
+) -> connector::Config {
+    let domain = if domain.is_empty() {
         None
     } else {
-        Some(server.domain.clone())
+        Some(domain.to_owned())
     };
 
     connector::Config {
         credentials: Credentials::UsernamePassword {
-            username: server.username.clone(),
-            password: server.password.clone(),
+            username: username.to_owned(),
+            password: password.to_owned(),
         },
         domain,
         enable_tls: true,

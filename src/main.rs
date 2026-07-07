@@ -5,7 +5,7 @@ mod session;
 
 use egui::{ColorImage, TextureHandle, TextureOptions};
 
-use config::{Config, Server};
+use config::{Config, Credential, Server};
 use ironrdp_input::Operation;
 use session::{SessionHandle, ToUi, ToWorker};
 
@@ -85,12 +85,22 @@ struct Editor {
     server: Server,
 }
 
+/// Modal editor state for adding/editing a credential.
+struct CredentialEditor {
+    /// Index into config.credentials being edited, or None if adding new.
+    index: Option<usize>,
+    credential: Credential,
+}
+
 struct App {
     config: Config,
     selected: Option<usize>,
     tabs: Vec<ConnTab>,
     active_tab: Option<usize>,
     editor: Option<Editor>,
+    credential_editor: Option<CredentialEditor>,
+    /// Index of the selected credential in the credentials list.
+    selected_credential: Option<usize>,
     /// Last known size of the connection drawing area, used to pick the
     /// initial resolution when connecting in "Fit to window" mode.
     last_central_size: (u16, u16),
@@ -104,16 +114,20 @@ impl App {
             tabs: Vec::new(),
             active_tab: None,
             editor: None,
+            credential_editor: None,
+            selected_credential: None,
             last_central_size: (1280, 800),
         }
     }
 
     fn connect(&mut self, index: usize) {
         let server = self.config.servers[index].clone();
+        let (username, password, domain) = self.config.resolve_credentials(&server);
+        let (username, password, domain) = (username.to_owned(), password.to_owned(), domain.to_owned());
         // Adapt the initial desktop size to the current drawing area so the
         // first frame already matches the window ("Fit to window" default).
         let (w, h) = clamp_desktop(self.last_central_size);
-        let handle = session::spawn(server.clone(), w, h);
+        let handle = session::spawn(server.clone(), username, password, domain, w, h);
         self.tabs.push(ConnTab {
             server_name: server.name.clone(),
             handle,
@@ -197,6 +211,7 @@ impl eframe::App for App {
         self.left_panel(ui);
         self.central_panel(ui);
         self.editor_window(&ctx);
+        self.credential_editor_window(&ctx);
     }
 }
 
@@ -206,6 +221,60 @@ impl App {
             .resizable(true)
             .default_size(220.0)
             .show(ui, |ui| {
+                // ── Credentials section ───────────────────────────────────
+                egui::CollapsingHeader::new("Credentials")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let mut remove_cred = None;
+                        for (i, cred) in self.config.credentials.iter().enumerate() {
+                            let selected = self.selected_credential == Some(i);
+                            let label = if cred.label.is_empty() {
+                                cred.id.clone()
+                            } else {
+                                cred.label.clone()
+                            };
+                            if ui.selectable_label(selected, label).clicked() {
+                                self.selected_credential = Some(i);
+                            }
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Add").clicked() {
+                                self.credential_editor = Some(CredentialEditor {
+                                    index: None,
+                                    credential: Credential::default(),
+                                });
+                            }
+                            if ui.button("Edit").clicked() {
+                                if let Some(i) = self.selected_credential {
+                                    self.credential_editor = Some(CredentialEditor {
+                                        index: Some(i),
+                                        credential: self.config.credentials[i].clone(),
+                                    });
+                                }
+                            }
+                            if ui.button("Remove").clicked() {
+                                if let Some(i) = self.selected_credential {
+                                    remove_cred = Some(i);
+                                }
+                            }
+                        });
+                        if let Some(i) = remove_cred {
+                            // Clear any server references to the removed credential.
+                            let removed_id = self.config.credentials[i].id.clone();
+                            for server in &mut self.config.servers {
+                                if server.credential_id.as_deref() == Some(&removed_id) {
+                                    server.credential_id = None;
+                                }
+                            }
+                            self.config.credentials.remove(i);
+                            self.selected_credential = None;
+                            let _ = self.config.save();
+                        }
+                    });
+
+                ui.separator();
+
+                // ── Servers section ───────────────────────────────────────
                 ui.heading("Servers");
                 ui.separator();
 
@@ -476,17 +545,48 @@ impl App {
                 }
                 ui.end_row();
 
-                ui.label("Username");
-                ui.text_edit_singleline(&mut editor.server.username);
+                // ── Credential picker ─────────────────────────────────────
+                ui.label("Credential");
+                let current_label = editor
+                    .server
+                    .credential_id
+                    .as_ref()
+                    .and_then(|id| self.config.credentials.iter().find(|c| &c.id == id))
+                    .map(|c| if c.label.is_empty() { c.id.as_str() } else { c.label.as_str() })
+                    .unwrap_or("(none — use inline)");
+                egui::ComboBox::from_id_salt("credential_picker")
+                    .selected_text(current_label)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(editor.server.credential_id.is_none(), "(none — use inline)")
+                            .clicked()
+                        {
+                            editor.server.credential_id = None;
+                        }
+                        for cred in &self.config.credentials {
+                            let label = if cred.label.is_empty() { &cred.id } else { &cred.label };
+                            let selected = editor.server.credential_id.as_deref() == Some(&cred.id);
+                            if ui.selectable_label(selected, label).clicked() {
+                                editor.server.credential_id = Some(cred.id.clone());
+                            }
+                        }
+                    });
                 ui.end_row();
 
-                ui.label("Password");
-                ui.add(egui::TextEdit::singleline(&mut editor.server.password).password(true));
-                ui.end_row();
+                // Inline credential fields — only shown when no stored credential is chosen.
+                if editor.server.credential_id.is_none() {
+                    ui.label("Username");
+                    ui.text_edit_singleline(&mut editor.server.username);
+                    ui.end_row();
 
-                ui.label("Domain");
-                ui.text_edit_singleline(&mut editor.server.domain);
-                ui.end_row();
+                    ui.label("Password");
+                    ui.add(egui::TextEdit::singleline(&mut editor.server.password).password(true));
+                    ui.end_row();
+
+                    ui.label("Domain");
+                    ui.text_edit_singleline(&mut editor.server.domain);
+                    ui.end_row();
+                }
             });
 
             ui.separator();
@@ -509,6 +609,71 @@ impl App {
         } else if !cancel && open {
             // Window still open, keep editing.
             self.editor = Some(editor);
+        }
+    }
+
+    fn credential_editor_window(&mut self, ctx: &egui::Context) {
+        let Some(mut ced) = self.credential_editor.take() else {
+            return;
+        };
+        let mut open = true;
+        let mut save = false;
+        let mut cancel = false;
+
+        egui::Window::new(if ced.index.is_some() {
+            "Edit Credential"
+        } else {
+            "Add Credential"
+        })
+        .collapsible(false)
+        .resizable(false)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            egui::Grid::new("cred_editor_grid").num_columns(2).show(ui, |ui| {
+                ui.label("ID");
+                ui.add_enabled(
+                    // ID cannot be changed after creation — it is the stable key.
+                    ced.index.is_none(),
+                    egui::TextEdit::singleline(&mut ced.credential.id),
+                );
+                ui.end_row();
+
+                ui.label("Label");
+                ui.text_edit_singleline(&mut ced.credential.label);
+                ui.end_row();
+
+                ui.label("Username");
+                ui.text_edit_singleline(&mut ced.credential.username);
+                ui.end_row();
+
+                ui.label("Password");
+                ui.add(egui::TextEdit::singleline(&mut ced.credential.password).password(true));
+                ui.end_row();
+
+                ui.label("Domain");
+                ui.text_edit_singleline(&mut ced.credential.domain);
+                ui.end_row();
+            });
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    save = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+        });
+
+        if save {
+            match ced.index {
+                Some(i) => self.config.credentials[i] = ced.credential.clone(),
+                None => self.config.credentials.push(ced.credential.clone()),
+            }
+            let _ = self.config.save();
+        } else if !cancel && open {
+            self.credential_editor = Some(ced);
         }
     }
 }
