@@ -2,12 +2,14 @@
 
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
+use ironrdp_cliprdr::CliprdrClient;
 use ironrdp_connector::connection_activation::ConnectionActivationState;
 use ironrdp_core::WriteBuf;
 use ironrdp_input::Operation;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStage, ActiveStageOutput};
 
+use crate::clipboard::ClipboardEvent;
 use crate::config::Server;
 use crate::connection;
 
@@ -37,12 +39,12 @@ pub struct SessionHandle {
     pub from_worker: Receiver<ToUi>,
 }
 
-pub fn spawn(server: Server, username: String, password: String, domain: String, width: u16, height: u16) -> SessionHandle {
+pub fn spawn(server: Server, username: String, password: String, domain: String, clipboard_passthrough: bool, width: u16, height: u16) -> SessionHandle {
     let (to_worker_tx, to_worker_rx) = std::sync::mpsc::channel::<ToWorker>();
     let (to_ui_tx, to_ui_rx) = std::sync::mpsc::channel::<ToUi>();
 
     std::thread::spawn(move || {
-        if let Err(e) = run(server, username, password, domain, width, height, &to_ui_tx, &to_worker_rx) {
+        if let Err(e) = run(server, username, password, domain, clipboard_passthrough, width, height, &to_ui_tx, &to_worker_rx) {
             let _ = to_ui_tx.send(ToUi::Error(format!("{e:#}")));
         }
     });
@@ -58,13 +60,23 @@ fn run(
     username: String,
     password: String,
     domain: String,
+    clipboard_passthrough: bool,
     width: u16,
     height: u16,
     to_ui: &Sender<ToUi>,
     from_ui: &Receiver<ToWorker>,
 ) -> anyhow::Result<()> {
+    // If clipboard passthrough is enabled, create a channel the CliprdrBackend
+    // uses to send events back to this run loop.
+    let (clipboard_tx, clipboard_rx) = if clipboard_passthrough {
+        let (tx, rx) = std::sync::mpsc::channel::<ClipboardEvent>();
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
+
     let config = connection::build_config(&server, &username, &password, &domain, width, height);
-    let (connection_result, mut framed) = connection::connect(config, server.host.clone(), server.port)?;
+    let (connection_result, mut framed) = connection::connect(config, server.host.clone(), server.port, clipboard_tx)?;
 
     // Now that the handshake is done, switch to a short read timeout so the
     // active-stage loop stays responsive to input and shutdown requests.
@@ -121,6 +133,44 @@ fn run(
                 Ok(ToWorker::Shutdown) => return Ok(()),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return Ok(()),
+            }
+        }
+
+        // Drain clipboard events produced by the CliprdrBackend callbacks and
+        // forward them to the server via the CliprdrClient.
+        if let Some(ref rx) = clipboard_rx {
+            loop {
+                match rx.try_recv() {
+                    Ok(ClipboardEvent::InitiateCopy(formats)) => {
+                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>() {
+                            if let Ok(msgs) = cliprdr.initiate_copy(&formats) {
+                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs) {
+                                    framed.write_all(&bytes)?;
+                                }
+                            }
+                        }
+                    }
+                    Ok(ClipboardEvent::SubmitFormatData(response)) => {
+                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>() {
+                            if let Ok(msgs) = cliprdr.submit_format_data(response) {
+                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs) {
+                                    framed.write_all(&bytes)?;
+                                }
+                            }
+                        }
+                    }
+                    Ok(ClipboardEvent::RequestFormatData(format_id)) => {
+                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>() {
+                            if let Ok(msgs) = cliprdr.initiate_paste(format_id) {
+                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs) {
+                                    framed.write_all(&bytes)?;
+                                }
+                            }
+                        }
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => break,
+                }
             }
         }
 

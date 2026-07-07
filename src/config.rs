@@ -63,12 +63,26 @@ impl Default for Server {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub credentials: Vec<Credential>,
     #[serde(default)]
     pub servers: Vec<Server>,
+    /// When true, clipboard text is passed through between the local machine
+    /// and every remote session (requires the RDP CLIPRDR channel).
+    #[serde(default)]
+    pub clipboard_passthrough: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            credentials: Vec::new(),
+            servers: Vec::new(),
+            clipboard_passthrough: false,
+        }
+    }
 }
 
 impl Config {
@@ -132,6 +146,7 @@ mod tests {
                 password: "pw".into(),
                 domain: "WORKGROUP".into(),
             }],
+            clipboard_passthrough: false,
         };
         let json = serde_json::to_string_pretty(&cfg).unwrap();
         let back: Config = serde_json::from_str(&json).unwrap();
@@ -146,8 +161,8 @@ mod tests {
             credentials: vec![Credential {
                 id: "corp".into(),
                 label: "Corp Admin".into(),
-                username: "dummy_username_for_testing".into(),
-                password: "dummy_password_for_testing".into(),
+                username: "administrator".into(),
+                password: "secret".into(),
                 domain: "CORP".into(),
             }],
             servers: vec![Server {
@@ -159,6 +174,7 @@ mod tests {
                 password: String::new(),
                 domain: String::new(),
             }],
+            clipboard_passthrough: false,
         };
         let json = serde_json::to_string_pretty(&cfg).unwrap();
         let back: Config = serde_json::from_str(&json).unwrap();
@@ -179,14 +195,15 @@ mod tests {
                 host: "h".into(),
                 port: 3389,
                 credential_id: None,
-                username: "dummy_username_for_testing".into(),
-                password: "dummy_password_for_testing".into(),
+                username: "dummytestuser".into(),
+                password: "dummytestpassword".into(),
                 domain: String::new(),
             }],
+            clipboard_passthrough: false,
         };
         let (u, p, _d) = cfg.resolve_credentials(&cfg.servers[0]);
-        assert_eq!(u, "inlineuser");
-        assert_eq!(p, "inlinepw");
+        assert_eq!(u, "dummytestuser");
+        assert_eq!(p, "dummytestpassword");
     }
 
     #[test]

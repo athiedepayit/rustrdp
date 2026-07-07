@@ -11,9 +11,11 @@ use ironrdp::connector::{ConnectionResult, ServerName};
 use ironrdp::pdu::gcc::KeyboardType;
 use ironrdp::pdu::rdp::capability_sets::MajorPlatformType;
 use ironrdp::pdu::rdp::client_info::{PerformanceFlags, TimezoneInfo};
+use ironrdp_cliprdr::CliprdrClient;
 use sspi::network_client::reqwest_network_client::ReqwestNetworkClient;
 use tokio_rustls::rustls;
 
+use crate::clipboard::AppClipboardBackend;
 use crate::config::Server;
 
 pub type UpgradedFramed =
@@ -74,6 +76,7 @@ pub fn connect(
     config: connector::Config,
     server_name: String,
     port: u16,
+    clipboard_tx: Option<std::sync::mpsc::Sender<crate::clipboard::ClipboardEvent>>,
 ) -> anyhow::Result<(ConnectionResult, UpgradedFramed)> {
     let server_addr = lookup_addr(&server_name, port).context("lookup addr")?;
 
@@ -83,11 +86,16 @@ pub fn connect(
 
     let mut framed = ironrdp_blocking::Framed::new(tcp_stream);
 
-    let mut connector = ClientConnector::new(config, client_addr).with_static_channel(
-        ironrdp_dvc::DrdynvcClient::new().with_dynamic_channel(
-            ironrdp_displaycontrol::client::DisplayControlClient::new(|_caps| Ok(Vec::new())),
-        ),
+    let dvc = ironrdp_dvc::DrdynvcClient::new().with_dynamic_channel(
+        ironrdp_displaycontrol::client::DisplayControlClient::new(|_caps| Ok(Vec::new())),
     );
+
+    let mut connector = ClientConnector::new(config, client_addr).with_static_channel(dvc);
+
+    if let Some(tx) = clipboard_tx {
+        let backend = AppClipboardBackend::new(tx);
+        connector = connector.with_static_channel(CliprdrClient::new(Box::new(backend)));
+    }
 
     let should_upgrade =
         ironrdp_blocking::connect_begin(&mut framed, &mut connector).context("begin connection")?;

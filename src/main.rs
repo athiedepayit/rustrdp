@@ -1,3 +1,4 @@
+mod clipboard;
 mod config;
 mod connection;
 mod input;
@@ -124,10 +125,11 @@ impl App {
         let server = self.config.servers[index].clone();
         let (username, password, domain) = self.config.resolve_credentials(&server);
         let (username, password, domain) = (username.to_owned(), password.to_owned(), domain.to_owned());
+        let clipboard_passthrough = self.config.clipboard_passthrough;
         // Adapt the initial desktop size to the current drawing area so the
         // first frame already matches the window ("Fit to window" default).
         let (w, h) = clamp_desktop(self.last_central_size);
-        let handle = session::spawn(server.clone(), username, password, domain, w, h);
+        let handle = session::spawn(server.clone(), username, password, domain, clipboard_passthrough, w, h);
         self.tabs.push(ConnTab {
             server_name: server.name.clone(),
             handle,
@@ -268,6 +270,19 @@ impl App {
                             }
                             self.config.credentials.remove(i);
                             self.selected_credential = None;
+                            let _ = self.config.save();
+                        }
+                    });
+
+                ui.separator();
+
+                // ── Settings section ──────────────────────────────────────
+                egui::CollapsingHeader::new("Settings")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let prev = self.config.clipboard_passthrough;
+                        ui.checkbox(&mut self.config.clipboard_passthrough, "Clipboard passthrough");
+                        if self.config.clipboard_passthrough != prev {
                             let _ = self.config.save();
                         }
                     });
@@ -495,9 +510,15 @@ impl App {
                         }
                     }
                     egui::Event::Text(text) => {
+                        // Only forward characters that have no scancode mapping
+                        // (e.g. IME / non-ASCII input).  Printable ASCII keys are
+                        // already sent as scancodes via Event::Key above; emitting
+                        // them again here would cause every keystroke to appear twice.
                         for ch in text.chars() {
-                            ops.push(Operation::UnicodeKeyPressed(ch));
-                            ops.push(Operation::UnicodeKeyReleased(ch));
+                            if ch as u32 > 127 {
+                                ops.push(Operation::UnicodeKeyPressed(ch));
+                                ops.push(Operation::UnicodeKeyReleased(ch));
+                            }
                         }
                     }
                     _ => {}
