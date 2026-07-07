@@ -19,11 +19,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 720.0]),
         ..Default::default()
     };
-    eframe::run_native(
-        "RustRDP",
-        options,
-        Box::new(|_cc| Ok(Box::new(App::new()))),
-    )
+    eframe::run_native("RustRDP", options, Box::new(|_cc| Ok(Box::new(App::new()))))
 }
 
 /// Desktop resolution selection for a connection.
@@ -126,12 +122,21 @@ impl App {
     fn connect(&mut self, index: usize) {
         let server = self.config.servers[index].clone();
         let (username, password, domain) = self.config.resolve_credentials(&server);
-        let (username, password, domain) = (username.to_owned(), password.to_owned(), domain.to_owned());
+        let (username, password, domain) =
+            (username.to_owned(), password.to_owned(), domain.to_owned());
         let clipboard_passthrough = self.config.clipboard_passthrough;
         // Adapt the initial desktop size to the current drawing area so the
         // first frame already matches the window ("Fit to window" default).
         let (w, h) = clamp_desktop(self.last_central_size);
-        let handle = session::spawn(server.clone(), username, password, domain, clipboard_passthrough, w, h);
+        let handle = session::spawn(
+            server.clone(),
+            username,
+            password,
+            domain,
+            clipboard_passthrough,
+            w,
+            h,
+        );
         self.tabs.push(ConnTab {
             server_name: server.name.clone(),
             server_index: index,
@@ -171,13 +176,22 @@ impl App {
         }
         let server = self.config.servers[server_index].clone();
         let (username, password, domain) = self.config.resolve_credentials(&server);
-        let (username, password, domain) = (username.to_owned(), password.to_owned(), domain.to_owned());
+        let (username, password, domain) =
+            (username.to_owned(), password.to_owned(), domain.to_owned());
         let clipboard_passthrough = self.config.clipboard_passthrough;
         let (w, h) = clamp_desktop(self.tabs[i].desktop_size);
         // Shut down the old worker (it may already be dead, ignore errors).
         let _ = self.tabs[i].handle.to_worker.send(ToWorker::Shutdown);
         // Spawn a fresh worker and replace the tab's handle in-place.
-        let handle = session::spawn(server.clone(), username, password, domain, clipboard_passthrough, w, h);
+        let handle = session::spawn(
+            server.clone(),
+            username,
+            password,
+            domain,
+            clipboard_passthrough,
+            w,
+            h,
+        );
         let tab = &mut self.tabs[i];
         tab.handle = handle;
         tab.texture = None;
@@ -200,7 +214,11 @@ impl App {
                         tab.connected = true;
                         tab.status = format!("Connected ({width}x{height})");
                     }
-                    Ok(ToUi::Frame { width, height, rgba }) => {
+                    Ok(ToUi::Frame {
+                        width,
+                        height,
+                        rgba,
+                    }) => {
                         let image = ColorImage::from_rgba_premultiplied(
                             [width as usize, height as usize],
                             &rgba,
@@ -311,7 +329,10 @@ impl App {
                     .default_open(false)
                     .show(ui, |ui| {
                         let prev = self.config.clipboard_passthrough;
-                        ui.checkbox(&mut self.config.clipboard_passthrough, "Clipboard passthrough");
+                        ui.checkbox(
+                            &mut self.config.clipboard_passthrough,
+                            "Clipboard passthrough",
+                        );
                         if self.config.clipboard_passthrough != prev {
                             let _ = self.config.save();
                         }
@@ -367,26 +388,26 @@ impl App {
                         }
                     }
                 });
-            // Resolution selector for the active tab.
-            if let Some(active) = self.active_tab {
-                if active < self.tabs.len() {
-                    let tab = &mut self.tabs[active];
-                    ui.horizontal(|ui| {
-                        ui.label("Resolution:");
-                        egui::ComboBox::from_id_salt("resolution")
-                            .selected_text(tab.resolution.label())
-                            .show_ui(ui, |ui| {
-                                for preset in Resolution::PRESETS {
-                                    ui.selectable_value(
-                                        &mut tab.resolution,
-                                        *preset,
-                                        preset.label(),
-                                    );
-                                }
-                            });
-                    });
+                // Resolution selector for the active tab.
+                if let Some(active) = self.active_tab {
+                    if active < self.tabs.len() {
+                        let tab = &mut self.tabs[active];
+                        ui.horizontal(|ui| {
+                            ui.label("Resolution:");
+                            egui::ComboBox::from_id_salt("resolution")
+                                .selected_text(tab.resolution.label())
+                                .show_ui(ui, |ui| {
+                                    for preset in Resolution::PRESETS {
+                                        ui.selectable_value(
+                                            &mut tab.resolution,
+                                            *preset,
+                                            preset.label(),
+                                        );
+                                    }
+                                });
+                        });
+                    }
                 }
-            }
 
                 if ui.button("Connect").clicked() {
                     if let Some(i) = self.selected {
@@ -583,67 +604,85 @@ impl App {
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
-            egui::Grid::new("editor_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Name");
-                ui.text_edit_singleline(&mut editor.server.name);
-                ui.end_row();
+            egui::Grid::new("editor_grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut editor.server.name);
+                    ui.end_row();
 
-                ui.label("Host");
-                ui.text_edit_singleline(&mut editor.server.host);
-                ui.end_row();
+                    ui.label("Host");
+                    ui.text_edit_singleline(&mut editor.server.host);
+                    ui.end_row();
 
-                ui.label("Port");
-                let mut port_str = editor.server.port.to_string();
-                if ui.text_edit_singleline(&mut port_str).changed() {
-                    if let Ok(p) = port_str.parse::<u16>() {
-                        editor.server.port = p;
+                    ui.label("Port");
+                    let mut port_str = editor.server.port.to_string();
+                    if ui.text_edit_singleline(&mut port_str).changed() {
+                        if let Ok(p) = port_str.parse::<u16>() {
+                            editor.server.port = p;
+                        }
                     }
-                }
-                ui.end_row();
+                    ui.end_row();
 
-                // ── Credential picker ─────────────────────────────────────
-                ui.label("Credential");
-                let current_label = editor
-                    .server
-                    .credential_id
-                    .as_ref()
-                    .and_then(|id| self.config.credentials.iter().find(|c| &c.id == id))
-                    .map(|c| if c.label.is_empty() { c.id.as_str() } else { c.label.as_str() })
-                    .unwrap_or("(none — use inline)");
-                egui::ComboBox::from_id_salt("credential_picker")
-                    .selected_text(current_label)
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(editor.server.credential_id.is_none(), "(none — use inline)")
-                            .clicked()
-                        {
-                            editor.server.credential_id = None;
-                        }
-                        for cred in &self.config.credentials {
-                            let label = if cred.label.is_empty() { &cred.id } else { &cred.label };
-                            let selected = editor.server.credential_id.as_deref() == Some(&cred.id);
-                            if ui.selectable_label(selected, label).clicked() {
-                                editor.server.credential_id = Some(cred.id.clone());
+                    // ── Credential picker ─────────────────────────────────────
+                    ui.label("Credential");
+                    let current_label = editor
+                        .server
+                        .credential_id
+                        .as_ref()
+                        .and_then(|id| self.config.credentials.iter().find(|c| &c.id == id))
+                        .map(|c| {
+                            if c.label.is_empty() {
+                                c.id.as_str()
+                            } else {
+                                c.label.as_str()
                             }
-                        }
-                    });
-                ui.end_row();
-
-                // Inline credential fields — only shown when no stored credential is chosen.
-                if editor.server.credential_id.is_none() {
-                    ui.label("Username");
-                    ui.text_edit_singleline(&mut editor.server.username);
+                        })
+                        .unwrap_or("(none — use inline)");
+                    egui::ComboBox::from_id_salt("credential_picker")
+                        .selected_text(current_label)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(
+                                    editor.server.credential_id.is_none(),
+                                    "(none — use inline)",
+                                )
+                                .clicked()
+                            {
+                                editor.server.credential_id = None;
+                            }
+                            for cred in &self.config.credentials {
+                                let label = if cred.label.is_empty() {
+                                    &cred.id
+                                } else {
+                                    &cred.label
+                                };
+                                let selected =
+                                    editor.server.credential_id.as_deref() == Some(&cred.id);
+                                if ui.selectable_label(selected, label).clicked() {
+                                    editor.server.credential_id = Some(cred.id.clone());
+                                }
+                            }
+                        });
                     ui.end_row();
 
-                    ui.label("Password");
-                    ui.add(egui::TextEdit::singleline(&mut editor.server.password).password(true));
-                    ui.end_row();
+                    // Inline credential fields — only shown when no stored credential is chosen.
+                    if editor.server.credential_id.is_none() {
+                        ui.label("Username");
+                        ui.text_edit_singleline(&mut editor.server.username);
+                        ui.end_row();
 
-                    ui.label("Domain");
-                    ui.text_edit_singleline(&mut editor.server.domain);
-                    ui.end_row();
-                }
-            });
+                        ui.label("Password");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut editor.server.password).password(true),
+                        );
+                        ui.end_row();
+
+                        ui.label("Domain");
+                        ui.text_edit_singleline(&mut editor.server.domain);
+                        ui.end_row();
+                    }
+                });
 
             ui.separator();
             ui.horizontal(|ui| {
@@ -685,31 +724,33 @@ impl App {
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
-            egui::Grid::new("cred_editor_grid").num_columns(2).show(ui, |ui| {
-                ui.label("ID");
-                ui.add_enabled(
-                    // ID cannot be changed after creation — it is the stable key.
-                    ced.index.is_none(),
-                    egui::TextEdit::singleline(&mut ced.credential.id),
-                );
-                ui.end_row();
+            egui::Grid::new("cred_editor_grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label("ID");
+                    ui.add_enabled(
+                        // ID cannot be changed after creation — it is the stable key.
+                        ced.index.is_none(),
+                        egui::TextEdit::singleline(&mut ced.credential.id),
+                    );
+                    ui.end_row();
 
-                ui.label("Label");
-                ui.text_edit_singleline(&mut ced.credential.label);
-                ui.end_row();
+                    ui.label("Label");
+                    ui.text_edit_singleline(&mut ced.credential.label);
+                    ui.end_row();
 
-                ui.label("Username");
-                ui.text_edit_singleline(&mut ced.credential.username);
-                ui.end_row();
+                    ui.label("Username");
+                    ui.text_edit_singleline(&mut ced.credential.username);
+                    ui.end_row();
 
-                ui.label("Password");
-                ui.add(egui::TextEdit::singleline(&mut ced.credential.password).password(true));
-                ui.end_row();
+                    ui.label("Password");
+                    ui.add(egui::TextEdit::singleline(&mut ced.credential.password).password(true));
+                    ui.end_row();
 
-                ui.label("Domain");
-                ui.text_edit_singleline(&mut ced.credential.domain);
-                ui.end_row();
-            });
+                    ui.label("Domain");
+                    ui.text_edit_singleline(&mut ced.credential.domain);
+                    ui.end_row();
+                });
 
             ui.separator();
             ui.horizontal(|ui| {

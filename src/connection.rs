@@ -82,7 +82,9 @@ pub fn connect(
 
     let tcp_stream = TcpStream::connect(server_addr).context("TCP connect")?;
 
-    let client_addr = tcp_stream.local_addr().context("get socket local address")?;
+    let client_addr = tcp_stream
+        .local_addr()
+        .context("get socket local address")?;
 
     let mut framed = ironrdp_blocking::Framed::new(tcp_stream);
 
@@ -136,7 +138,10 @@ pub fn set_read_timeout(
     timeout: Option<std::time::Duration>,
 ) -> anyhow::Result<()> {
     let (stream, _leftover) = framed.get_inner_mut();
-    stream.sock.set_read_timeout(timeout).context("set_read_timeout")?;
+    stream
+        .sock
+        .set_read_timeout(timeout)
+        .context("set_read_timeout")?;
     Ok(())
 }
 

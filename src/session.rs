@@ -15,7 +15,10 @@ use crate::connection;
 
 /// Messages from the worker thread to the UI.
 pub enum ToUi {
-    Connected { width: u16, height: u16 },
+    Connected {
+        width: u16,
+        height: u16,
+    },
     /// Full RGBA framebuffer snapshot (width * height * 4 bytes).
     Frame {
         width: u16,
@@ -30,7 +33,10 @@ pub enum ToUi {
 pub enum ToWorker {
     Input(Vec<Operation>),
     /// Request the remote desktop be resized to the given dimensions.
-    Resize { width: u16, height: u16 },
+    Resize {
+        width: u16,
+        height: u16,
+    },
     Shutdown,
 }
 
@@ -39,12 +45,30 @@ pub struct SessionHandle {
     pub from_worker: Receiver<ToUi>,
 }
 
-pub fn spawn(server: Server, username: String, password: String, domain: String, clipboard_passthrough: bool, width: u16, height: u16) -> SessionHandle {
+pub fn spawn(
+    server: Server,
+    username: String,
+    password: String,
+    domain: String,
+    clipboard_passthrough: bool,
+    width: u16,
+    height: u16,
+) -> SessionHandle {
     let (to_worker_tx, to_worker_rx) = std::sync::mpsc::channel::<ToWorker>();
     let (to_ui_tx, to_ui_rx) = std::sync::mpsc::channel::<ToUi>();
 
     std::thread::spawn(move || {
-        if let Err(e) = run(server, username, password, domain, clipboard_passthrough, width, height, &to_ui_tx, &to_worker_rx) {
+        if let Err(e) = run(
+            server,
+            username,
+            password,
+            domain,
+            clipboard_passthrough,
+            width,
+            height,
+            &to_ui_tx,
+            &to_worker_rx,
+        ) {
             let _ = to_ui_tx.send(ToUi::Error(format!("{e:#}")));
         }
     });
@@ -76,7 +100,8 @@ fn run(
     };
 
     let config = connection::build_config(&server, &username, &password, &domain, width, height);
-    let (connection_result, mut framed) = connection::connect(config, server.host.clone(), server.port, clipboard_tx)?;
+    let (connection_result, mut framed) =
+        connection::connect(config, server.host.clone(), server.port, clipboard_tx)?;
 
     // Now that the handshake is done, switch to a short read timeout so the
     // active-stage loop stays responsive to input and shutdown requests.
@@ -142,27 +167,33 @@ fn run(
             loop {
                 match rx.try_recv() {
                     Ok(ClipboardEvent::InitiateCopy(formats)) => {
-                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>() {
+                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>()
+                        {
                             if let Ok(msgs) = cliprdr.initiate_copy(&formats) {
-                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs) {
+                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs)
+                                {
                                     framed.write_all(&bytes)?;
                                 }
                             }
                         }
                     }
                     Ok(ClipboardEvent::SubmitFormatData(response)) => {
-                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>() {
+                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>()
+                        {
                             if let Ok(msgs) = cliprdr.submit_format_data(response) {
-                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs) {
+                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs)
+                                {
                                     framed.write_all(&bytes)?;
                                 }
                             }
                         }
                     }
                     Ok(ClipboardEvent::RequestFormatData(format_id)) => {
-                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>() {
+                        if let Some(cliprdr) = active_stage.get_svc_processor_mut::<CliprdrClient>()
+                        {
                             if let Ok(msgs) = cliprdr.initiate_paste(format_id) {
-                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs) {
+                                if let Ok(bytes) = active_stage.process_svc_processor_messages(msgs)
+                                {
                                     framed.write_all(&bytes)?;
                                 }
                             }
@@ -223,7 +254,10 @@ fn run(
                             h,
                         );
                         last_sent_size = (w, h);
-                        let _ = to_ui.send(ToUi::Connected { width: w, height: h });
+                        let _ = to_ui.send(ToUi::Connected {
+                            width: w,
+                            height: h,
+                        });
                         send_frame(to_ui, &image);
                     }
                 }

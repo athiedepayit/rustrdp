@@ -93,7 +93,10 @@ impl CliprdrBackend for AppClipboardBackend {
         let _ = self.tx.send(ClipboardEvent::InitiateCopy(formats));
     }
 
-    fn on_process_negotiated_capabilities(&mut self, capabilities: ClipboardGeneralCapabilityFlags) {
+    fn on_process_negotiated_capabilities(
+        &mut self,
+        capabilities: ClipboardGeneralCapabilityFlags,
+    ) {
         self.capabilities = capabilities;
     }
 
@@ -105,7 +108,9 @@ impl CliprdrBackend for AppClipboardBackend {
             .iter()
             .any(|f| f.id() == ClipboardFormatId::CF_UNICODETEXT);
         if has_unicode {
-            let _ = self.tx.send(ClipboardEvent::RequestFormatData(ClipboardFormatId::CF_UNICODETEXT));
+            let _ = self.tx.send(ClipboardEvent::RequestFormatData(
+                ClipboardFormatId::CF_UNICODETEXT,
+            ));
         }
     }
 
