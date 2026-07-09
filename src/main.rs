@@ -75,6 +75,10 @@ struct ConnTab {
     connected: bool,
     // Keyboard scancodes currently held down, so we can release them.
     held_keys: std::collections::HashSet<u16>,
+    /// Whether the RDP session has keyboard focus (user clicked inside the
+    /// session area).  When false, keystrokes are not forwarded so sidebar
+    /// navigation (Tab, Enter, etc.) works normally.
+    keyboard_captured: bool,
 }
 
 /// Modal editor state for adding/editing a server.
@@ -137,6 +141,7 @@ impl App {
                     status: msg,
                     connected: false,
                     held_keys: std::collections::HashSet::new(),
+                    keyboard_captured: false,
                 });
                 self.active_tab = Some(self.tabs.len() - 1);
                 return;
@@ -167,6 +172,7 @@ impl App {
             status: "Connecting...".to_owned(),
             connected: false,
             held_keys: std::collections::HashSet::new(),
+            keyboard_captured: false,
         });
         self.active_tab = Some(self.tabs.len() - 1);
     }
@@ -526,6 +532,52 @@ impl App {
             .sense(egui::Sense::click_and_drag());
         let resp = ui.add(image);
 
+        // A click inside the RDP session captures keyboard input; a click
+        // anywhere outside releases it so sidebar navigation works normally.
+        if resp.clicked() || resp.is_pointer_button_down_on() {
+            tab.keyboard_captured = true;
+        }
+        let mut release_ops: Vec<Operation> = Vec::new();
+        ui.input(|i| {
+            for event in &i.events {
+                if let egui::Event::PointerButton { pressed: true, .. } = event {
+                    // Any pointer-down outside the image releases keyboard capture.
+                    if !resp.is_pointer_button_down_on() && tab.keyboard_captured {
+                        tab.keyboard_captured = false;
+                        // Release any held keys so nothing gets stuck on the remote.
+                        for sc in tab.held_keys.drain() {
+                            release_ops.push(input::key_released(sc));
+                        }
+                    }
+                }
+            }
+        });
+        if !release_ops.is_empty() && tab.connected {
+            let _ = tab.handle.to_worker.send(ToWorker::Input(release_ops));
+        }
+
+        // When the RDP session owns keyboard input, hold egui focus on the
+        // image widget and lock all special keys (Tab, arrows, Escape) so
+        // egui does not use them for its own focus traversal.
+        if tab.keyboard_captured {
+            resp.request_focus();
+            ui.memory_mut(|mem| {
+                mem.set_focus_lock_filter(
+                    resp.id,
+                    egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: true,
+                    },
+                );
+            });
+        } else {
+            if resp.has_focus() {
+                resp.surrender_focus();
+            }
+        }
+
         let mut ops: Vec<Operation> = Vec::new();
 
         // Map pointer position within the image to desktop coordinates.
@@ -567,26 +619,30 @@ impl App {
                         modifiers,
                         ..
                     } => {
-                        // Apply modifier keys around the main key.
-                        let mods = input::modifier_scancodes(modifiers);
-                        if *pressed {
-                            for m in &mods {
-                                if tab.held_keys.insert(*m) {
-                                    ops.push(input::key_pressed(*m));
+                        // Only forward key events when the RDP session has
+                        // keyboard focus (user clicked inside the session area).
+                        if tab.keyboard_captured {
+                            // Apply modifier keys around the main key.
+                            let mods = input::modifier_scancodes(modifiers);
+                            if *pressed {
+                                for m in &mods {
+                                    if tab.held_keys.insert(*m) {
+                                        ops.push(input::key_pressed(*m));
+                                    }
                                 }
-                            }
-                            if let Some(sc) = input::key_scancode(*key) {
-                                tab.held_keys.insert(sc);
-                                ops.push(input::key_pressed(sc));
-                            }
-                        } else {
-                            if let Some(sc) = input::key_scancode(*key) {
-                                tab.held_keys.remove(&sc);
-                                ops.push(input::key_released(sc));
-                            }
-                            for m in &mods {
-                                if tab.held_keys.remove(m) {
-                                    ops.push(input::key_released(*m));
+                                if let Some(sc) = input::key_scancode(*key) {
+                                    tab.held_keys.insert(sc);
+                                    ops.push(input::key_pressed(sc));
+                                }
+                            } else {
+                                if let Some(sc) = input::key_scancode(*key) {
+                                    tab.held_keys.remove(&sc);
+                                    ops.push(input::key_released(sc));
+                                }
+                                for m in &mods {
+                                    if tab.held_keys.remove(m) {
+                                        ops.push(input::key_released(*m));
+                                    }
                                 }
                             }
                         }
@@ -596,10 +652,13 @@ impl App {
                         // (e.g. IME / non-ASCII input).  Printable ASCII keys are
                         // already sent as scancodes via Event::Key above; emitting
                         // them again here would cause every keystroke to appear twice.
-                        for ch in text.chars() {
-                            if ch as u32 > 127 {
-                                ops.push(Operation::UnicodeKeyPressed(ch));
-                                ops.push(Operation::UnicodeKeyReleased(ch));
+                        // Also gated on keyboard capture like key events above.
+                        if tab.keyboard_captured {
+                            for ch in text.chars() {
+                                if ch as u32 > 127 {
+                                    ops.push(Operation::UnicodeKeyPressed(ch));
+                                    ops.push(Operation::UnicodeKeyReleased(ch));
+                                }
                             }
                         }
                     }
