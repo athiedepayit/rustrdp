@@ -593,6 +593,8 @@ impl App {
         // Mouse buttons and keyboard are handled via raw input events below,
         // for precise press/release semantics.
         ui.input(|i| {
+            // Track chars already dispatched as scancodes to avoid duplicates in Event::Text.
+            let mut scancode_chars: std::collections::HashSet<char> = std::collections::HashSet::new();
             for event in &i.events {
                 match event {
                     egui::Event::PointerButton {
@@ -633,6 +635,13 @@ impl App {
                                 if let Some(sc) = input::key_scancode(*key) {
                                     tab.held_keys.insert(sc);
                                     ops.push(input::key_pressed(sc));
+                                    // Record the char so Event::Text doesn't re-send it.
+                                    if let Some(ch) = input::key_char(*key) {
+                                        scancode_chars.insert(ch);
+                                        // Also insert the shifted variant so Shift+key combos
+                                        // (e.g. 'A' from Shift+a) are deduplicated too.
+                                        scancode_chars.extend(ch.to_uppercase());
+                                    }
                                 }
                             } else {
                                 if let Some(sc) = input::key_scancode(*key) {
@@ -648,14 +657,14 @@ impl App {
                         }
                     }
                     egui::Event::Text(text) => {
-                        // Only forward characters that have no scancode mapping
-                        // (e.g. IME / non-ASCII input).  Printable ASCII keys are
-                        // already sent as scancodes via Event::Key above; emitting
-                        // them again here would cause every keystroke to appear twice.
-                        // Also gated on keyboard capture like key events above.
+                        // Forward characters that have no scancode mapping as unicode
+                        // key events. This covers shifted ASCII chars like ':', '|', '?',
+                        // '!', '+', '{', '}', as well as non-ASCII / IME input.
+                        // Characters already dispatched as scancodes (tracked in
+                        // `scancode_chars`) are skipped to avoid double-sending.
                         if tab.keyboard_captured {
                             for ch in text.chars() {
-                                if ch as u32 > 127 {
+                                if ch as u32 >= 32 && !scancode_chars.contains(&ch) {
                                     ops.push(Operation::UnicodeKeyPressed(ch));
                                     ops.push(Operation::UnicodeKeyReleased(ch));
                                 }
