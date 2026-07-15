@@ -593,8 +593,27 @@ impl App {
         // Mouse buttons and keyboard are handled via raw input events below,
         // for precise press/release semantics.
         ui.input(|i| {
-            // Track chars already dispatched as scancodes to avoid duplicates in Event::Text.
-            let mut scancode_chars: std::collections::HashSet<char> = std::collections::HashSet::new();
+            // Pre-pass: collect all text strings produced by keys that have a scancode
+            // mapping. These will be sent as scancodes (with proper modifier state) and
+            // must not be re-sent as unicode via Event::Text, regardless of whether the
+            // character is the shifted or unshifted form of the key.
+            let mut scancode_texts: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            {
+                let events: &[egui::Event] = &i.events;
+                let mut j = 0;
+                while j < events.len() {
+                    if let egui::Event::Key { key, pressed: true, .. } = &events[j] {
+                        if input::key_scancode(*key).is_some() {
+                            // The next event is often the corresponding Text event.
+                            if let Some(egui::Event::Text(t)) = events.get(j + 1) {
+                                scancode_texts.insert(t.clone());
+                            }
+                        }
+                    }
+                    j += 1;
+                }
+            }
             for event in &i.events {
                 match event {
                     egui::Event::PointerButton {
@@ -635,13 +654,6 @@ impl App {
                                 if let Some(sc) = input::key_scancode(*key) {
                                     tab.held_keys.insert(sc);
                                     ops.push(input::key_pressed(sc));
-                                    // Record the char so Event::Text doesn't re-send it.
-                                    if let Some(ch) = input::key_char(*key) {
-                                        scancode_chars.insert(ch);
-                                        // Also insert the shifted variant so Shift+key combos
-                                        // (e.g. 'A' from Shift+a) are deduplicated too.
-                                        scancode_chars.extend(ch.to_uppercase());
-                                    }
                                 }
                             } else {
                                 if let Some(sc) = input::key_scancode(*key) {
@@ -660,11 +672,11 @@ impl App {
                         // Forward characters that have no scancode mapping as unicode
                         // key events. This covers shifted ASCII chars like ':', '|', '?',
                         // '!', '+', '{', '}', as well as non-ASCII / IME input.
-                        // Characters already dispatched as scancodes (tracked in
-                        // `scancode_chars`) are skipped to avoid double-sending.
-                        if tab.keyboard_captured {
+                        // Text produced by keys that already have a scancode mapping
+                        // (tracked in `scancode_texts`) is skipped to avoid double-sending.
+                        if tab.keyboard_captured && !scancode_texts.contains(text.as_str()) {
                             for ch in text.chars() {
-                                if ch as u32 >= 32 && !scancode_chars.contains(&ch) {
+                                if ch as u32 >= 32 {
                                     ops.push(Operation::UnicodeKeyPressed(ch));
                                     ops.push(Operation::UnicodeKeyReleased(ch));
                                 }

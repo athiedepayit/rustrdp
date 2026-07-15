@@ -136,32 +136,6 @@ pub fn modifier_scancodes(mods: &egui::Modifiers) -> Vec<u16> {
     codes
 }
 
-/// Return the character that a key produces (unshifted, US layout), if any.
-/// Used to deduplicate `Event::Text` characters that are already sent as scancodes.
-pub fn key_char(key: Key) -> Option<char> {
-    let ch = match key {
-        Key::A => 'a', Key::B => 'b', Key::C => 'c', Key::D => 'd',
-        Key::E => 'e', Key::F => 'f', Key::G => 'g', Key::H => 'h',
-        Key::I => 'i', Key::J => 'j', Key::K => 'k', Key::L => 'l',
-        Key::M => 'm', Key::N => 'n', Key::O => 'o', Key::P => 'p',
-        Key::Q => 'q', Key::R => 'r', Key::S => 's', Key::T => 't',
-        Key::U => 'u', Key::V => 'v', Key::W => 'w', Key::X => 'x',
-        Key::Y => 'y', Key::Z => 'z',
-        Key::Num0 => '0', Key::Num1 => '1', Key::Num2 => '2',
-        Key::Num3 => '3', Key::Num4 => '4', Key::Num5 => '5',
-        Key::Num6 => '6', Key::Num7 => '7', Key::Num8 => '8',
-        Key::Num9 => '9',
-        Key::Minus => '-', Key::Equals => '=',
-        Key::OpenBracket => '[', Key::CloseBracket => ']',
-        Key::Semicolon => ';', Key::Quote => '\'',
-        Key::Backtick => '`', Key::Backslash => '\\',
-        Key::Comma => ',', Key::Period => '.', Key::Slash => '/',
-        Key::Space => ' ',
-        _ => return None,
-    };
-    Some(ch)
-}
-
 pub fn key_pressed(scancode: u16) -> Operation {
     Operation::KeyPressed(Scancode::from_u16(scancode))
 }
