@@ -17,7 +17,7 @@ ironrdp-graphics = "0.8"
 ironrdp-input = "0.6"
 ironrdp-pdu = "0.8"
 ironrdp-core = "0.2"
-ironrdp-dvc = "0.7"
+ironrdp-dvc = "0.8"
 ironrdp-displaycontrol = "0.7"
 
 # TLS + CredSSP network client
