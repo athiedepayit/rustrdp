@@ -4555,7 +4555,7 @@ dependencies = [
  "ironrdp-connector",
  "ironrdp-core",
  "ironrdp-displaycontrol 0.7.0",
- "ironrdp-dvc 0.7.0",
+ "ironrdp-dvc 0.8.0",
  "ironrdp-graphics 0.8.1",
  "ironrdp-input",
  "ironrdp-pdu 0.8.0",
