@@ -13,7 +13,7 @@ ironrdp = { version = "0.16", features = ["connector", "session", "graphics", "i
 ironrdp-blocking = "0.9"
 ironrdp-connector = "0.9"
 ironrdp-session = "0.11"
-ironrdp-graphics = "0.8"
+ironrdp-graphics = "0.9"
 ironrdp-input = "0.6"
 ironrdp-pdu = "0.9"
 ironrdp-core = "0.2"
