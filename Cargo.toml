@@ -12,7 +12,7 @@ egui = "0.35"
 ironrdp = { version = "0.16", features = ["connector", "session", "graphics", "input", "pdu"] }
 ironrdp-blocking = "0.9"
 ironrdp-connector = "0.9"
-ironrdp-session = "0.10"
+ironrdp-session = "0.11"
 ironrdp-graphics = "0.8"
 ironrdp-input = "0.6"
 ironrdp-pdu = "0.8"
