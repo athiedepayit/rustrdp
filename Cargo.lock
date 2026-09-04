@@ -4558,7 +4558,7 @@ dependencies = [
  "ironrdp-dvc 0.8.0",
  "ironrdp-graphics 0.8.1",
  "ironrdp-input",
- "ironrdp-pdu 0.8.0",
+ "ironrdp-pdu 0.9.0",
  "ironrdp-session 0.11.0",
  "serde",
  "serde_json",
