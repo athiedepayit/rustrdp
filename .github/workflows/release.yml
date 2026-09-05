@@ -47,6 +47,15 @@ jobs:
             artifact: rustrdp
             asset_name: rustrdp-macos-arm64
 
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: rustrdp
+            asset_name: rustrdp-windows-x86_64.exe
+
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            artifact: rustrdp
+            asset_name: rustrdp-windows-arm64.exe
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -82,9 +91,17 @@ jobs:
       - name: Build (cargo)
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package artifact
+      - name: Package artifact (Unix)
+        if: matrix.os != 'windows-latest'
         run: |
           cp target/${{ matrix.target }}/release/${{ matrix.artifact }} ${{ matrix.asset_name }}
+
+      - name: Package artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $src = "target/${{ matrix.target }}/release/${{ matrix.artifact }}.exe"
+          Copy-Item $src -Destination ${{ matrix.asset_name }}
 
       - name: Upload release asset
         env:
