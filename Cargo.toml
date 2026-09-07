@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # GUI
 eframe = "0.35"
-egui = "0.35"
+egui = "0.36"
 
 # RDP
 ironrdp = { version = "0.16", features = ["connector", "session", "graphics", "input", "pdu"] }
