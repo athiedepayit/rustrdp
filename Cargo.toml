@@ -23,7 +23,7 @@ ironrdp-displaycontrol = "0.7"
 # TLS + CredSSP network client
 sspi = { version = "0.21", features = ["network_client"] }
 tokio-rustls = "0.26"
-x509-cert = { version = "0.2", default-features = false, features = ["std"] }
+x509-cert = { version = "0.3", default-features = false, features = ["std"] }
 
 # Config
 serde = { version = "1", features = ["derive"] }
