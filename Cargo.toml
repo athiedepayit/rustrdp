@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # GUI
-eframe = "0.35"
+eframe = "0.36"
 egui = "0.35"
 
 # RDP
